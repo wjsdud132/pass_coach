@@ -14,32 +14,36 @@ const genAI = new GoogleGenerativeAI(apiKey);
 export async function POST(req: Request) {
   try {
     const { jobTitle, url } = await req.json();
+    let jobDescription = '';
 
-    // ✅ 1️⃣ 공고 내용 크롤링
-    const response = await axios.get(url);
-    const $ = cheerio.load(response.data);
-    const jobDescription = $('body').text().replace(/\s+/g, ' ').trim();
+    // ✅ 1️⃣ URL이 있을 때만 크롤링 시도
+    if (url && url.trim() !== '') {
+      try {
+        const response = await axios.get(url);
+        const $ = cheerio.load(response.data);
+        jobDescription = $('body').text().replace(/\s+/g, ' ').trim();
+      } catch (err) {
+        console.warn('⚠️ URL을 불러올 수 없습니다. 대신 직군명만 사용합니다.');
+      }
+    }
 
-    // ✅ 2️⃣ 프롬프트 (JSON만 반환하도록 강제)
+    // ✅ 2️⃣ 프롬프트 (한국어 + JSON 강제)
     const prompt = `
-You are an expert interviewer.
-Based on the following job description for "${jobTitle}",
-generate EXACTLY 5 interview questions in PURE JSON.
-⚠️ Output ONLY JSON array — no explanations or markdown.
+당신은 채용 면접 전문가입니다.  
+${url ? `다음 채용 공고(${url})` : `"${jobTitle}" 직무`}를 참고하여,  
+해당 직무에 맞는 **면접 질문 5개를 한국어로** 생성하세요.
 
-Each item must include:
-- "type": one of ["Technical", "Behavioral", "General"]
-- "question": a single clear question.
+⚠️ 반드시 **JSON 배열 형식으로만** 출력하세요.  
+⚠️ JSON 외의 다른 설명, 문장, 마크다운은 포함하지 마세요.
 
-Job Description:
-${jobDescription}
-
-Return ONLY:
+각 항목은 다음 형식을 따라야 합니다:
 [
-  { "type": "Technical", "question": "..." },
-  { "type": "Behavioral", "question": "..." },
-  { "type": "General", "question": "..." }
+  { "type": "기술", "question": "..." },
+  { "type": "행동", "question": "..." },
+  { "type": "일반", "question": "..." }
 ]
+
+${jobDescription ? `직무 설명:\n${jobDescription}` : ''}
 `;
 
     console.log('🧠 Sending prompt to Gemini...');

@@ -2,14 +2,18 @@ import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  throw new Error('❌ Missing GEMINI_API_KEY in .env.local');
-}
-
-const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function POST(req: Request) {
   try {
+    if (!apiKey) {
+      console.error('❌ Missing GEMINI_API_KEY in .env.local');
+      return NextResponse.json(
+        { error: 'AI 피드백 설정이 완료되지 않았습니다. 환경변수를 확인해주세요.' },
+        { status: 500 }
+      );
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
     const { question, answer } = await req.json();
 
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
@@ -30,7 +34,8 @@ export async function POST(req: Request) {
     `;
 
     const result = await model.generateContent(prompt);
-    const feedback = result.response.text();
+    const response = await result.response;
+    const feedback = response.text(); 
 
     return NextResponse.json({ feedback });
   } catch (error: any) {
@@ -41,3 +46,5 @@ export async function POST(req: Request) {
     );
   }
 }
+
+

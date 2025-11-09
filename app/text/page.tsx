@@ -13,6 +13,9 @@ export default function TextInterviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false); // ✅ 추가
+  const [isCompleted, setIsCompleted] = useState(false); // 면접 완료 상태
+  const [finalFeedback, setFinalFeedback] = useState<string>(''); // 종합 피드백
+  const [isGeneratingFinalFeedback, setIsGeneratingFinalFeedback] = useState(false); // 종합 피드백 생성 중
 
   useEffect(() => {
     const loadQuestions = async () => {
@@ -95,17 +98,106 @@ export default function TextInterviewPage() {
   };
 
   const handleComplete = async () => {
+    // 마지막 질문에 대한 피드백이 없다면 생성
     const question = questions[currentQuestionIndex]?.question;
     const answer = answers[currentQuestionIndex];
     if (answer.trim().length > 0 && !feedbacks[currentQuestionIndex]) {
       await generateFeedback(question, answer);
     }
-    alert('면접이 완료되었습니다!');
+
+    // 모든 질문과 답변에 대한 종합 피드백 생성
+    setIsGeneratingFinalFeedback(true);
+    try {
+      const response = await fetch('/api/feedback-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          questions: questions.map(q => q.question || q),
+          answers: answers 
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setFinalFeedback(data.feedback);
+        setIsCompleted(true);
+      } else {
+        throw new Error(data.error || '종합 피드백 생성 실패');
+      }
+    } catch (err) {
+      console.error('종합 피드백 생성 오류:', err);
+      alert('피드백 생성 중 오류가 발생했습니다. 다시 시도해주세요.');
+    } finally {
+      setIsGeneratingFinalFeedback(false);
+    }
+  };
+
+  const handleBackToHome = () => {
     router.push('/');
   };
 
-  // 로딩 및 에러 화면은 동일...
+  // 로딩 및 에러 화면
+  if (isLoading) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white">
+        <p className="text-2xl animate-pulse">질문을 생성하는 중...</p>
+      </main>
+    );
+  }
 
+  if (error) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
+        <div className="bg-red-900 border border-red-700 p-6 rounded-lg">
+          <p className="text-xl font-bold mb-2">오류 발생</p>
+          <p>{error}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 bg-red-700 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg"
+          >
+            메인으로 돌아가기
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // 면접 완료 화면 (종합 피드백 표시)
+  if (isCompleted) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
+        <div className="w-full max-w-4xl">
+          <h2 className="text-center text-4xl font-bold text-teal-400 mb-8">면접 완료! 🎉</h2>
+          <div className="bg-slate-800 border border-teal-700 p-8 rounded-2xl shadow-xl">
+            <h3 className="text-2xl font-bold text-teal-400 mb-6 text-center">📝 종합 피드백</h3>
+            {isGeneratingFinalFeedback ? (
+              <div className="text-center py-8">
+                <p className="text-teal-300 text-xl animate-pulse mb-4">
+                  AI가 모든 답변을 분석하여 종합 피드백을 생성하는 중입니다...
+                </p>
+              </div>
+            ) : finalFeedback ? (
+              <div className="bg-slate-700 border border-teal-600 rounded-lg p-6 mb-6">
+                <p className="text-slate-200 whitespace-pre-line text-lg leading-relaxed">
+                  {finalFeedback}
+                </p>
+              </div>
+            ) : null}
+            <div className="flex justify-center mt-6">
+              <button
+                onClick={handleBackToHome}
+                className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-8 rounded-lg text-xl"
+              >
+                메인으로 돌아가기
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  // 일반 면접 화면
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
       <div className="w-full max-w-3xl">
@@ -158,9 +250,10 @@ export default function TextInterviewPage() {
             ) : (
               <button
                 onClick={handleComplete}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-xl"
+                disabled={isGeneratingFinalFeedback}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg text-xl disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                면접 완료
+                {isGeneratingFinalFeedback ? '피드백 생성 중...' : '면접 완료'}
               </button>
             )}
           </div>

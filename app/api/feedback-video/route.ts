@@ -1,3 +1,4 @@
+// app/api/feedback-video/route.ts (스타일 수정본)
 import { NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -18,40 +19,48 @@ export async function POST(req: Request) {
 
     if (!videoBase64) {
       return NextResponse.json(
-        { error: '비디오 데이터가 없습니다.' },
+        { error: '오디오 데이터가 없습니다.' },
         { status: 400 }
       );
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' }); 
 
+    // ⭐️ [수정] 프롬프트 스타일 변경
     const prompt = `
-    아래는 사용자의 면접 답변 비디오입니다.
-    ---
-    질문: ${question}
-    ---
-    
-    이 비디오를 보고 다음 기준으로 평가하고 피드백을 작성해주세요:
-    - 말하는 내용의 논리성과 구체성
-    - 표정과 눈 접촉 (시선 처리)
-    - 자세와 손짓 (비언어적 커뮤니케이션)
-    - 말투와 발음의 명확성
-    - 전반적인 자신감과 표현력
-    - 직무 적합성
-    
-    각각에 대해 간단히 언급하고, 마지막에 총평을 2~3문장으로 써주세요.
-    응원의 말투로 작성해주세요.
-    `;
+    당신은 전문 채용 면접관입니다. 
+    아래 면접 [질문]에 대한 지원자의 [답변 오디오]를 듣고 분석하세요.
 
-    // 비디오를 base64에서 File 객체로 변환
-    const videoData = Buffer.from(videoBase64, 'base64');
+    [질문]
+    ${question}
+
+    [피드백 요청]
+    오디오를 듣고, 다음 항목으로 나누어 피드백을 작성해주세요: 그 어디에도 이모지 사용하지 않습니다.
+
+    **[Good]**
+    (여기에 답변 내용의 논리성, 구체성 등 잘한 점 1-2가지를 작성하세요. **내용에는 절대 \`**\`나 \`*\`를 사용하지 마세요.**)
+
+    **[Bad]**
+    (여기에 답변 내용에서 아쉬운 점 1-2가지를 작성하세요. **내용에는 절대 \`**\`나 \`*\`를 사용하지 마세요.**)
+
+    **[Suggestion]**
+    (여기에 답변 내용을 개선하기 위한 구체적인 제안 1-2가지를 작성하세요. **내용에는 절대 \`**\`나 \`*\`를 사용하지 마세요.**)
+
+    **[발음 및 말투]**
+    (여기에 목소리 톤, 발음의 명확성, "어..." 같은 불필요한 추임새, 말의 속도(어눌함) 등을 평가하세요. **내용에는 절대 \`**\`나 \`*\`를 사용하지 마세요.**)
+
+    [규칙]
+    - **어조**: 전문적이고 객관적인 채용 담당자의 어조.
+    - **형식**: \`**[소제목]**\`과 일반 텍스트 단락만 사용하세요.
+    - **금지**: 본문 내용에 \`**\`(굵게)나 \`*\`(글머리 기호)를 절대 사용하지 마세요.
+    `;
     
     const result = await model.generateContent([
       prompt,
       {
         inlineData: {
           data: videoBase64,
-          mimeType: videoMimeType || 'video/webm',
+          mimeType: videoMimeType || 'audio/webm',
         },
       },
     ]);
@@ -63,9 +72,8 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('❌ [Video Feedback Error]', error);
     return NextResponse.json(
-      { error: error.message || 'AI 비디오 피드백 생성 실패' },
+      { error: error.message || 'AI 오디오 피드백 생성 실패' },
       { status: 500 }
     );
   }
 }
-

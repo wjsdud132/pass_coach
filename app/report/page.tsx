@@ -1,10 +1,11 @@
-// app/report/page.tsx (3번 요청 - 타이머, 응답 속도, 피드백을 보여주는 신규 리포트 페이지)
+// app/report/page.tsx (className 오류 수정 및 부모 <div>로 스타일 이동)
 
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import ReactMarkdown from 'react-markdown'; // 1. 라이브러리 import
 
 // 4. 최종 피드백을 위한 인터페이스 정의 (camera/page.tsx와 동일)
 type FeedbackItem = {
@@ -107,7 +108,7 @@ export default function ReportPage() {
       }
     };
 
-    fetchSummary(parsedHistory); // ⭐️ 파싱된 데이터를 기반으로 요약 요청
+    fetchSummary(parsedHistory); 
 
   }, [router]);
 
@@ -146,20 +147,25 @@ export default function ReportPage() {
 
         {/* 종합 피드백 */}
         <div className="bg-slate-800 border border-teal-800 p-8 rounded-2xl shadow-xl mb-8">
-          <h2 className="text-2xl font-bold text-teal-300 mb-4">📝 AI 종합 피드백</h2>
+          <h2 className="text-2xl font-bold text-teal-300 mb-4"> AI 종합 피드백</h2>
           {isSummaryLoading ? (
              <div className="flex items-center justify-center gap-3 text-slate-300">
               <div className="w-4 h-4 border-2 border-slate-300 border-t-transparent rounded-full animate-spin"></div>
               종합 피드백을 생성하는 중입니다...
             </div>
           ) : (
-            <p className="text-slate-200 whitespace-pre-line leading-relaxed">{finalSummary}</p>
+            // ⭐️ [수정] ReactMarkdown을 <div>로 감싸고, className을 <div>로 이동
+            <div className="text-slate-200 leading-relaxed prose prose-invert max-w-none">
+              <ReactMarkdown>
+                {finalSummary}
+              </ReactMarkdown>
+            </div>
           )}
         </div>
 
         {/* 질문별 상세 피드백 */}
         <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-teal-300 mb-4">📋 질문별 상세 피드백</h2>
+          <h2 className="text-2xl font-bold text-teal-300 mb-4"> 질문별 상세 피드백</h2>
           {feedbackHistory.length > 0 ? (
             feedbackHistory.map((item, index) => (
               <details key={index} className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden" open={index === 0}>
@@ -172,8 +178,13 @@ export default function ReportPage() {
                   <h4 className="font-bold text-slate-400 mb-2">제출한 답변:</h4>
                   <p className="bg-slate-900 p-4 rounded-md mb-4 text-slate-300 italic">"{item.transcription}"</p>
                   
-                  <h4 className="font-bold text-teal-400 mb-2">⭐️ AI 상세 피드백:</h4>
-                  <p className="bg-slate-900 p-4 rounded-md text-slate-200 whitespace-pre-line leading-relaxed">{item.feedback}</p>
+                  <h4 className="font-bold text-teal-400 mb-2"> AI 상세 피드백:</h4>
+                  {/* ⭐️ [수정] 여기도 동일하게 <div>로 감싸고 className 이동 */}
+                  <div className="bg-slate-900 p-4 rounded-md text-slate-200 whitespace-pre-line leading-relaxed prose prose-invert max-w-none">
+                    <ReactMarkdown>
+                      {item.feedback}
+                    </ReactMarkdown>
+                  </div>
                   
                   <h4 className="font-bold text-blue-400 mt-4 mb-2">비언어적 요소 점수:</h4>
                   <div className="flex flex-wrap gap-4 text-center">

@@ -1,4 +1,4 @@
-// app/camera/page.tsx (STT, 면접 제어, 리포트 저장 기능이 모두 적용된 최종본)
+// app/camera/page.tsx (모든 오류 수정 및 기능 통합 최종본)
 
 'use client';
 
@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 
-// 2. MediaPipe(표정)와 VAD(음성) 라이브러리를 import 합니다. (기존 코드 유지)
+// 2. MediaPipe(표정)와 VAD(음성) 라이브러리를 import 합니다.
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { MicVAD, getDefaultRealTimeVADOptions, type RealTimeVADOptions } from "@ricky0123/vad-web";
 
@@ -23,11 +23,11 @@ type ChatMessage = {
   text: string;
 };
 
-// 4. 최종 피드백을 위한 인터페이스 정의 (⭐️ 점수 필드 추가)
+// 4. 최종 피드백을 위한 인터페이스 정의
 type FeedbackItem = {
   question: string;
-  transcription: string;
-  feedback: string;
+  transcription: string; // STT로 변환된 텍스트
+  feedback: string;      // AI의 피드백 (음성/텍스트 기반)
   scores: {
     expression: number;
     gaze: number;
@@ -35,11 +35,19 @@ type FeedbackItem = {
   };
 };
 
+// ⭐️ 3번 요청: 타이머 포맷팅 헬퍼 함수
+const formatTime = (totalSeconds: number) => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+
 function CameraPageContent() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const chatContainerRef = useRef<HTMLDivElement>(null); // 채팅창 스크롤을 위한 Ref
+  const chatContainerRef = useRef<HTMLDivElement>(null); 
 
   // --- AI, 녹음, 분석 루프를 위한 Ref ---
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
@@ -48,32 +56,39 @@ function CameraPageContent() {
   const audioChunksRef = useRef<Blob[]>([]);
   const animationFrameId = useRef<number | null>(null);
   const lastVideoTimeRef = useRef(-1);
-  const textInputRef = useRef<string>(''); // ⭐️ textInput을 ref로도 관리
-  const isRecordingRef = useRef<boolean>(false); // ⭐️ isRecording을 ref로도 관리
-  const currentQuestionIndexRef = useRef<number>(-1); // ⭐️ currentQuestionIndex를 ref로도 관리
-  const questionsRef = useRef<Question[]>([]); // ⭐️ questions를 ref로도 관리
+  const textInputRef = useRef<string>(''); 
+  const isRecordingRef = useRef<boolean>(false); 
+  const currentQuestionIndexRef = useRef<number>(-1); 
+  const questionsRef = useRef<Question[]>([]); 
   
-  // ⭐️ sendAudioToApi 함수 ref
-  // (useCallback 안에서 최신 feedbackHistory를 참조하기 위해 sendAudioToApi를 ref로 관리합니다.)
   const sendAudioToApiRef = useRef<((audioBlob: Blob) => Promise<void>) | null>(null);
+  
+  // ⭐️ 4번 오류 해결: feedbackHistory의 최신 상태를 참조하기 위한 Ref
+  const feedbackHistoryRef = useRef<FeedbackItem[]>([]);
+
+  // --- ⭐️ 3번 요청 (타이머, 응답시간) ---
+  const [elapsedTime, setElapsedTime] = useState(0); // 면접 경과 시간 (초)
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null); // 타이머 ID
+  const questionTimestampRef = useRef<number>(Date.now()); // AI 질문 종료 시각
+  const reactionTimesRef = useRef<number[]>([]); // 질문별 답변 반응 시간 (ms)
 
   // --- 상태 관리 ---
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(-1); // ⭐️ -1: 자기소개 단계
-  const [interviewFlow, setInterviewFlow] = useState<ChatMessage[]>([]); // 1. 채팅 UI 상태
-  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]); // 2. 최종 피드백 저장 상태
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(-1); 
+  const [interviewFlow, setInterviewFlow] = useState<ChatMessage[]>([]); 
+  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]); 
   const [jobUrl, setJobUrl] = useState('');
   const [jobCategory, setJobCategory] = useState('');
-  const [textInput, setTextInput] = useState(''); // ⭐️ 텍스트 입력창 상태 추가
+  const [textInput, setTextInput] = useState(''); 
 
   // --- UI 상태 관리 ---
-  const [isLoading, setIsLoading] = useState(true); // 질문 로딩
-  const [isAiLoading, setIsAiLoading] = useState(true); // MediaPipe 로딩
-  const [isRecording, setIsRecording] = useState(false); // 음성 녹음 중
-  const [isProcessing, setIsProcessing] = useState(false); // 음성 처리 중(STT/Feedback)
-  const [isPaused, setIsPaused] = useState(false); // ⭐️ 일시정지 상태 추가
+  const [isLoading, setIsLoading] = useState(true); 
+  const [isAiLoading, setIsAiLoading] = useState(true); 
+  const [isRecording, setIsRecording] = useState(false); 
+  const [isProcessing, setIsProcessing] = useState(false); 
+  const [isPaused, setIsPaused] = useState(false); // ⭐️ 일시정지 상태
   
-  // ⭐️ textInput과 isRecording을 ref에도 동기화
+  // Ref 동기화
   useEffect(() => {
     textInputRef.current = textInput;
   }, [textInput]);
@@ -90,6 +105,12 @@ function CameraPageContent() {
     questionsRef.current = questions;
   }, [questions]);
 
+  // ⭐️ 4번 오류 해결: state가 변경될 때마다 ref를 동기화
+  useEffect(() => {
+    feedbackHistoryRef.current = feedbackHistory;
+  }, [feedbackHistory]);
+
+
   // --- 실시간 점수 상태 ---
   const [expressionScore, setExpressionScore] = useState(70);
   const [toneScore, setToneScore] = useState(60); 
@@ -98,10 +119,27 @@ function CameraPageContent() {
   // --- 에러 상태 ---
   const [error, setError] = useState<string | null>(null);
 
-  // --- 5. useEffect #1: 카메라, 마이크, VAD, 녹음기 설정 ---
+  // --- '고급 방법' (Blob to Base64 헬퍼) ---
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        // "data:audio/webm;base64," 같은 접두사 제거
+        resolve(base64data.split(',')[1]); 
+      };
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // --- ⭐️ 1번 요청 (AI 음성 출력) ---
+  // --- [제거됨] speak 함수 ---
+
+
+  // --- 5. useEffect #1: 카메라, 마이크, VAD, 녹음기 설정 (⭐️ 2, 3번 오류 수정) ---
   useEffect(() => {
-    // ⭐️ isLoading이 true이면(아직 <video> 태그가 렌더링 안됨)
-    // 함수를 즉시 종료합니다.
+    // ⭐️ 2번 오류 수정: isLoading이 true이면 (아직 <video> 태그 렌더링 전) 실행하지 않음
     if (isLoading) {
       return;
     }
@@ -124,11 +162,9 @@ function CameraPageContent() {
           
           console.log("카메라 스트림 획득 성공:", stream);
           
-          // ⭐️ isLoading이 false가 된 후이므로, videoRef.current는 이제 null이 아닙니다.
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             
-            // ⭐️ 비디오가 제대로 재생되도록 여러 이벤트에서 play() 호출
             const playVideo = async () => {
               if (videoRef.current && videoRef.current.paused) {
                 try {
@@ -140,30 +176,19 @@ function CameraPageContent() {
               }
             };
             
-            // loadedmetadata 이벤트에서 재생 시도
+            // ⭐️ 2번 오류 수정: 'play' 이벤트에서 predictWebcam을 시작하여 안정성 확보
             videoRef.current.addEventListener("loadedmetadata", playVideo);
-            
-            // loadeddata 이벤트에서 재생 시도 및 표정 분석 시작
-            videoRef.current.addEventListener("loadeddata", () => {
-              playVideo();
-              // (faceLandmarkerRef.current가 준비되었는지는 predictWebcam 내부에서 확인)
-              predictWebcam();
-            });
-            
-            // play 이벤트 리스너 추가
+            videoRef.current.addEventListener("loadeddata", playVideo);
             videoRef.current.addEventListener("play", () => {
               console.log("비디오 재생 중");
-              // ⭐️ play 이벤트에서도 predictWebcam을 호출하여 루프 시작 보장
-              predictWebcam();
+              predictWebcam(); // ⭐️ 여기서 표정 분석 루프 시작
             });
-            
-            // canplay 이벤트에서도 재생 시도
             videoRef.current.addEventListener("canplay", playVideo);
-            
-            // 즉시 재생 시도
-            playVideo();
+            playVideo(); // ⭐️ 즉시 재생 시도
           } else {
-            console.error("videoRef.current가 null입니다 (수정 후에도 발생한다면 다른 문제입니다)");
+             console.error("videoRef.current is null. Cannot attach stream.");
+             setError("비디오 요소를 찾을 수 없습니다. 페이지를 새로고침해주세요.");
+             return; // ⭐️ videoRef가 없으면 VAD/MediaRecorder 설정을 중단
           }
 
           mediaRecorderInstance = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -177,7 +202,6 @@ function CameraPageContent() {
             setIsProcessing(true);
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             audioChunksRef.current = [];
-            // sendAudioToApi 함수가 정의된 후 호출
             if (sendAudioToApiRef.current) {
               await sendAudioToApiRef.current(audioBlob);
             }
@@ -192,10 +216,19 @@ function CameraPageContent() {
               onnxWASMBasePath: "https://cdn.jsdelivr.net/npm/onnxruntime-web@latest/dist/",
               redemptionMs: 2000, 
               onSpeechStart: () => {
+                // ⭐️ 3번: 답변 반응 시간 측정
+                const reactionTime = Date.now() - questionTimestampRef.current;
+                // 자기소개(-1) 이후의 질문(0부터)에 대해서만 반응 시간 기록
+                if (currentQuestionIndexRef.current >= 0) {
+                  reactionTimesRef.current.push(reactionTime); 
+                  console.log(`Reaction time: ${reactionTime}ms`);
+                }
+                
                 if (textInputRef.current.trim() === '') {
                   setIsRecording(true);
                   const recorder = mediaRecorderRef.current;
                   if (recorder && recorder.state === 'inactive') {
+                    console.log("VAD: Speech Start -> Recording Start");
                     recorder.start();
                   }
                 }
@@ -205,6 +238,7 @@ function CameraPageContent() {
                   setIsRecording(false);
                   const recorder = mediaRecorderRef.current;
                   if (recorder && recorder.state === 'recording') {
+                    console.log("VAD: Speech End -> Recording Stop");
                     recorder.stop();
                   }
                 }
@@ -217,16 +251,20 @@ function CameraPageContent() {
                 s.getTracks().forEach(track => track.enabled = true);
                 return s;
               },
-              startOnLoad: false,
+              startOnLoad: false, // ⭐️ 자동으로 시작하지 않음
             };
             
             vadInstance = await MicVAD.new(vadOptions);
             vadRef.current = vadInstance;
+            
+            // ⭐️ 3번 오류 수정: VAD 시작 로직을 useEffect #7로 이동시킴
+            // (질문이 로드된 후 VAD가 시작되어야 함)
+
           }
           
         } catch (err) {
-          console.error("카메라/마이크 접근 오류:", err);
-          setError("카메라와 마이크 접근 권한을 허용해주세요.");
+          console.error("카메라/마이크/VAD 접근 오류:", err);
+          setError("카메라와 마이크 접근 권한을 허용해주세요. 오류가 지속되면 페이지를 새로고침해주세요.");
         }
       } else {
         setError("이 브라우저에서는 카메라 기능을 지원하지 않습니다.");
@@ -240,8 +278,9 @@ function CameraPageContent() {
       if (vadInstance) vadInstance.destroy();
       if (mediaRecorderInstance && mediaRecorderInstance.state !== "inactive") mediaRecorderInstance.stop();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); // ⭐️ 타이머 정리
     };
-  }, [isLoading]); // ⭐️ isLoading을 의존성 배열에 추가
+  }, [isLoading]); // ⭐️ isLoading이 false가 되면 이 Effect가 실행됨
 
 
   // --- 6. useEffect #2: MediaPipe 로드 ---
@@ -267,7 +306,7 @@ function CameraPageContent() {
     setupMediaPipe();
   }, []);
 
-  // --- 7. useEffect #3: 질문 로드 및 면접 시작 (기존 코드 유지) ---
+  // --- 7. useEffect #3: 질문 로드 및 면접 시작 (⭐️ 2, 3번 수정) ---
   useEffect(() => {
     let url = searchParams.get('job_url') || '';
     let category = searchParams.get('job_category') || '';
@@ -286,7 +325,8 @@ function CameraPageContent() {
         const response = await fetch('/api/generate-questions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_category: category, job_url: url }),
+          // ⭐️ [수정] 2번 요청: API가 기대하는 'jobTitle'과 'url'로 키 이름을 변경
+          body: JSON.stringify({ jobTitle: category, url: url }),
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message);
@@ -299,14 +339,27 @@ function CameraPageContent() {
         };
         setInterviewFlow([greetingMessage]);
         
+        // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+        // speak(greetingMessage.text); 
+        
         setCurrentQuestionIndex(-1);
-        vadRef.current?.start(); // VAD 시작
+        
+        // ⭐️ 3번 오류 수정: VAD를 여기서 시작 (setupDevices에서 VAD 인스턴스가 생성된 후)
+        setTimeout(() => {
+           if (vadRef.current) {
+             console.log("VAD Start on Question Load");
+             vadRef.current.start();
+           } else {
+             console.warn("VAD Ref not ready, retrying...");
+             setTimeout(() => vadRef.current?.start(), 1000); // 1초 후 재시도
+           }
+        }, 500); // 0.5초 딜레이
         
       } catch (err) {
         setError(err instanceof Error ? err.message : "질문 로딩 중 오류");
         setInterviewFlow([{ sender: 'ai', text: '질문을 불러오는 데 실패했습니다.' }]);
       }
-      setIsLoading(false);
+      setIsLoading(false); // ⭐️ 로딩 완료 -> 이때 useEffect #1이 실행됨
     }
 
     if (url || category) {
@@ -324,9 +377,30 @@ function CameraPageContent() {
     }
   }, [interviewFlow]);
 
-  // --- 9. 실시간 표정 분석 로직 (기존 수정본 유지) ---
+  // --- ⭐️ 9. useEffect #5: 타이머 로직 (3번 요청) ---
+  useEffect(() => {
+    // isLoading이 false이고, isPaused가 false일 때 타이머 실행
+    if (!isLoading && !isPaused) {
+      timerIntervalRef.current = setInterval(() => {
+        setElapsedTime(prevTime => prevTime + 1);
+      }, 1000);
+    } else if (timerIntervalRef.current) {
+      // isPaused가 true가 되거나, isLoading이 true면 타이머 중지
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    // 컴포넌트 언마운트 시 타이머 정리
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
+  }, [isLoading, isPaused]); // isLoading과 isPaused 상태가 변경될 때마다 실행
+
+  // --- 10. 실시간 표정 분석 로직 (predictWebcam) ---
   const predictWebcam = useCallback(() => {
-    // ⭐️ 일시정지 상태면 분석 중지
+    // ⭐️ 3번 오류 수정: 일시정지 상태면 분석 중지
     if (isPaused) {
       return;
     }
@@ -338,6 +412,7 @@ function CameraPageContent() {
     
     const video = videoRef.current;
 
+    // ⭐️ 2번 오류 수정: 비디오가 준비되지 않았거나, 일시정지되었거나, 너비가 0이면 루프만 계속 돌림
     if (video.videoWidth === 0 || video.videoHeight === 0 || video.paused) {
       animationFrameId.current = requestAnimationFrame(predictWebcam);
       return;
@@ -365,27 +440,35 @@ function CameraPageContent() {
     setGazeScore(Math.round((1 - gazeDemoScore) * 100));
   };
 
-  // --- ⭐️ 10. 최종 리포트 페이지 이동 함수 (신규) ---
+  // --- 11. 최종 리포트 페이지 이동 함수 (⭐️ 3, 4번 오류 수정) ---
   const goToReportPage = useCallback(() => {
-    setIsProcessing(false); // 모든 처리 중지
-    setIsPaused(true); // 인터페이스 비활성화
+    setIsProcessing(false); 
+    setIsPaused(true); // ⭐️ 타이머가 이 상태 변경으로 멈춤
     
-    // ⭐️ feedbackHistory를 sessionStorage에 저장
     try {
-      // ⭐️ feedbackHistory의 최신 상태를 사용하기 위해 state 대신 ref 사용
-      sessionStorage.setItem('feedbackHistory', JSON.stringify(feedbackHistory));
-      console.log("Saving to sessionStorage:", feedbackHistory);
+      // ⭐️ 4번 오류 수정: state 대신 ref에서 최신 데이터를 읽어 저장
+      sessionStorage.setItem('feedbackHistory', JSON.stringify(feedbackHistoryRef.current));
+      // ⭐️ 3번 요청: 면접 시간 및 응답 시간 저장
+      sessionStorage.setItem('totalInterviewTime', elapsedTime.toString());
+      sessionStorage.setItem('reactionTimes', JSON.stringify(reactionTimesRef.current)); 
+      
+      console.log("Saving to sessionStorage:", {
+        feedbackHistory: feedbackHistoryRef.current,
+        elapsedTime,
+        reactionTimes: reactionTimesRef.current
+      });
+
     } catch (err) {
       console.error("sessionStorage 저장 실패:", err);
       alert("결과 저장에 실패했습니다.");
-      return;
+      return; // ⭐️ 저장 실패 시 이동 중단
     }
     
     // ⭐️ /report 페이지로 이동
     router.push('/report');
-  }, [router, feedbackHistory]); // ⭐️ feedbackHistory 의존성 추가
+  }, [router, elapsedTime]); // ⭐️ 4번 오류 수정: feedbackHistory 의존성 제거 (ref 사용)
 
-  // --- 11. 자연스러운 다음 질문 로드 로직 (⭐️ 수정) ---
+  // --- 12. 자연스러운 다음 질문 로드 로직 (⭐️ 1, 3번 수정) ---
   const loadNextQuestion = useCallback(() => {
     const currentIdx = currentQuestionIndexRef.current;
     const currentQuestions = questionsRef.current;
@@ -405,34 +488,49 @@ function CameraPageContent() {
       
       let transitionPhrase = '';
       
-      if (nextIndex === 0) {
+      if (nextIndex === 0) { // 자기소개 -> 첫 질문
         const firstPhrases = [
           "네, 자기소개 잘 들었습니다. 그럼 이제 본격적으로 면접 질문을 드려볼게요.",
           "감사합니다. 자기소개 잘 들었어요. 이제 몇 가지 질문 드리겠습니다.",
         ];
-        transitionPhrase = firstPhrases[Math.floor(Math.random() * firstPhrases.length)];
-      } else {
+        transitionPhrase = firstPhrases[Math.floor(Math.random() * firstPhrases.length)] + " " + nextQuestion;
+      } else { // 일반 질문 -> 다음 질문
         const randomTransition = transitionPhrases[Math.floor(Math.random() * transitionPhrases.length)];
         const randomConnecting = connectingPhrases[Math.floor(Math.random() * connectingPhrases.length)];
         transitionPhrase = `${randomTransition} ${randomConnecting} ${nextQuestion}`;
       }
       
       setInterviewFlow(prev => [...prev, { sender: 'ai', text: transitionPhrase }]);
+      // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+      // speak(transitionPhrase);
       setIsProcessing(false); 
+
+      // ⭐️ 3번 오류 수정: AI가 질문을 표시한 후, VAD를 다시 시작
+      setTimeout(() => {
+        if (!isPaused) {
+           console.log("VAD Start for next question");
+           vadRef.current?.start();
+           questionTimestampRef.current = Date.now(); // ⭐️ 3번: 반응 시간 측정을 위해 현재 시각 기록
+        }
+      }, 500); // 0.5초 후 VAD 시작
+
     } else {
-      // 면접 완료 (⭐️ goToReportPage 호출로 변경)
+      // 면접 완료
       setIsProcessing(false);
       const endingPhrase = "네, 수고하셨습니다. 모든 면접이 종료되었습니다. 잠시 후 최종 피드백 페이지로 이동합니다.";
       setInterviewFlow(prev => [...prev, { sender: 'ai', text: endingPhrase }]);
+      // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+      // speak(endingPhrase); 
       vadRef.current?.pause(); // 음성 감지 중지
       
+      // ⭐️ 4번 오류 수정: goToReportPage가 올바르게 호출되도록 함
       setTimeout(() => {
         goToReportPage();
-      }, 3000);
+      }, 3000); // 3초 후 리포트 페이지로 이동
     }
-  }, [goToReportPage]); // ⭐️ goToReportPage 의존성 추가
+  }, [goToReportPage, isPaused]); // ⭐️ isPaused 의존성 추가
 
-  // --- 12. 오디오 전송 로직 (⭐️ STT 연동 및 점수 저장) ---
+  // --- 13. [수정됨] 오디오 전송 로직 (STT와 "고급 음성 피드백" 병렬 처리) ---
   const sendAudioToApi = useCallback(async (audioBlob: Blob) => {
     const currentIdx = currentQuestionIndexRef.current;
     const currentQuestions = questionsRef.current;
@@ -440,17 +538,43 @@ function CameraPageContent() {
       currentIdx === -1 ? "1분 자기소개를 부탁드립니다." : (currentQuestions[currentIdx]?.question || "질문을 불러오는 중입니다.");
 
     let transcription = "[음성 인식이 되지 않았습니다.]";
-    
+    let feedback = "[피드백을 생성하지 못했습니다.]";
+
     try {
-      // ⭐️ 1. STT API 호출
+      // STT API용 FormData 준비
       const audioFormData = new FormData();
       audioFormData.append('audio', audioBlob, 'interview_answer.webm');
 
-      const sttResponse = await fetch('/api/stt', {
-        method: 'POST',
-        body: audioFormData,
-      });
+      // --- ⭐️ Promise.all을 사용하여 STT와 음성 피드백 API를 병렬로 호출 ---
+      const [sttResponse, feedbackResponse] = await Promise.all([
+        
+        // 1. STT API 호출 (/api/stt)
+        fetch('/api/stt', {
+          method: 'POST',
+          body: audioFormData,
+        }),
+        
+        // 2. "고급 음성 피드백" API 호출 (/api/feedback-video)
+        (async () => {
+          try {
+            const audioBase64 = await blobToBase64(audioBlob);
+            return fetch('/api/feedback-video', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                question: currentQuestionText, 
+                videoBase64: audioBase64, // ⭐️ 오디오 데이터를 Base64로 전송
+                videoMimeType: 'audio/webm' // ⭐️ 정확한 MimeType 명시
+              }),
+            });
+          } catch (error) {
+            console.error("Base64 변환 또는 음성 피드백 요청 실패:", error);
+            return new Response(JSON.stringify({ error: "음성 피드백 API 호출 실패" }), { status: 500 });
+          }
+        })()
+      ]);
 
+      // --- 1. STT 응답 처리 ---
       if (sttResponse.ok) {
         const sttResult = await sttResponse.json();
         transcription = (sttResult.transcription || "").trim() || transcription;
@@ -459,71 +583,61 @@ function CameraPageContent() {
          transcription = "[음성 답변 처리 중 오류가 발생했습니다.]";
       }
 
-    } catch (sttError) {
-      console.error("STT API 오류:", sttError);
-      transcription = "[음성 답변 처리 중 오류가 발생했습니다.]";
-    }
-
-    // ⭐️ 2. 유저 답변을 채팅창에 표시
-    setInterviewFlow(prev => [...prev, { sender: 'user', text: transcription }]);
-
-    try {
-      // ⭐️ 3. STT로 변환된 텍스트를 피드백 API로 전송
-      const feedbackResponse = await fetch('/api/feedback-text', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: currentQuestionText, answer: transcription }),
-      });
-
-      if (!feedbackResponse.ok) {
-        throw new Error('피드백 API 호출에 실패했습니다.');
+      // --- 2. 음성 피드백 응답 처리 ---
+      if (feedbackResponse.ok) {
+        const feedbackResult = await feedbackResponse.json();
+        if (feedbackResult.error) {
+          throw new Error(feedbackResult.error);
+        }
+        feedback = feedbackResult.feedback; // ⭐️ 이것이 "고급 피드백" (말투 포함)
+      } else {
+        console.error("음성 피드백 API 실패:", await feedbackResponse.text());
+        feedback = "[AI 피드백 생성 중 오류가 발생했습니다.]";
       }
 
-      const feedbackResult = await feedbackResponse.json();
-      if (feedbackResult.error) {
-        throw new Error(feedbackResult.error);
-      }
-      
-      // ⭐️ 4. 피드백 결과 저장 (자기소개 제외)
-      if (currentIdx >= 0) {
-        // ⭐️ setFeedbackHistory에 함수형 업데이트 사용
+      // --- 3. UI 업데이트 및 상태 저장 ---
+      setInterviewFlow(prev => [...prev, { sender: 'user', text: transcription }]);
+
+      if (currentIdx >= 0) { // 자기소개는 피드백 히스토리에 저장 안함
         setFeedbackHistory(prevHistory => [
           ...prevHistory,
           {
             question: currentQuestionText,
-            transcription: feedbackResult.transcription,
-            feedback: feedbackResult.feedback,
-            // ⭐️ 현재 상태의 점수를 함께 저장
+            transcription: transcription, // ⭐️ STT 결과
+            feedback: feedback,         // ⭐️ 음성 분석 피드백 결과
             scores: {
               expression: expressionScore,
               gaze: gazeScore,
-              tone: toneScore, // (현재 하드코딩된 값)
+              tone: toneScore, 
             }
           }
         ]);
       }
       
-      // ⭐️ 5. 다음 질문 로드
-      loadNextQuestion(); 
+      loadNextQuestion(); // ⭐️ 다음 질문 로드 (VAD 시작 로직 포함됨)
 
-    } catch (feedbackError) {
-      console.error("피드백 API 오류:", feedbackError);
-      setInterviewFlow(prev => [...prev, { sender: 'user', text: "(오류: 텍스트 답변 처리에 실패했습니다.)" }]);
+    } catch (error) {
+      console.error("STT 또는 피드백 API 처리 중 전반적 오류:", error);
+      setInterviewFlow(prev => [...prev, { sender: 'user', text: transcription }]);
+      const errorMsg = "(오류: 답변 피드백 생성에 실패했습니다. 다음 질문으로 넘어갑니다.)";
+      setInterviewFlow(prev => [...prev, { sender: 'ai', text: errorMsg }]);
+      // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+      // speak(errorMsg); 
       loadNextQuestion(); 
     }
-  }, [loadNextQuestion, expressionScore, gazeScore, toneScore]); // ⭐️ 점수 상태 의존성 추가
+  }, [loadNextQuestion, expressionScore, gazeScore, toneScore, isPaused]); // ⭐️ isPaused 의존성 추가
   
   // ⭐️ sendAudioToApi 함수를 ref에 저장
   useEffect(() => {
     sendAudioToApiRef.current = sendAudioToApi;
   }, [sendAudioToApi]);
 
-  // --- 13. 텍스트 답변 전송 로직 (⭐️ 점수 저장 추가) ---
+  // --- 14. 텍스트 답변 전송 로직 (⭐️ 3번 오류 수정) ---
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const answerText = textInput.trim();
 
-    if (!answerText || isProcessing || isRecording || isPaused) return; // ⭐️ isPaused 확인
+    if (!answerText || isProcessing || isRecording || isPaused) return; 
 
     setIsProcessing(true);
     setTextInput('');
@@ -534,6 +648,7 @@ function CameraPageContent() {
     setInterviewFlow(prev => [...prev, { sender: 'user', text: answerText }]);
 
     try {
+      // ⭐️ 텍스트 답변은 /api/feedback-text API를 사용 (프롬프트가 수정됨)
       const response = await fetch('/api/feedback-text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -550,15 +665,13 @@ function CameraPageContent() {
       const feedbackResult = JSON.parse(responseText);
       if (feedbackResult.error) throw new Error(feedbackResult.error);
 
-      // ⭐️ 피드백 결과 저장 (자기소개 제외)
-      if (currentQuestionIndex >= 0) {
+      if (currentQuestionIndex >= 0) { // 자기소개는 저장 안함
         setFeedbackHistory(prev => [
           ...prev,
           {
             question: currentQuestionText,
             transcription: feedbackResult.transcription, 
-            feedback: feedbackResult.feedback,
-            // ⭐️ 텍스트 답변 시에도 점수 저장
+            feedback: feedbackResult.feedback, // ⭐️ 텍스트 기반 피드백 (유창성 포함)
             scores: {
               expression: expressionScore,
               gaze: gazeScore,
@@ -568,32 +681,39 @@ function CameraPageContent() {
         ]);
       }
 
-      loadNextQuestion(); 
+      loadNextQuestion(); // ⭐️ 다음 질문 로드 (VAD 시작 로직 포함됨)
 
     } catch (err) {
       console.error("텍스트 피드백 API 오류:", err);
-      setInterviewFlow(prev => [...prev, { sender: 'user', text: "(오류: 텍스트 답변 처리에 실패했습니다.)" }]);
+      const errorMsg = "(오류: 텍스트 답변 처리에 실패했습니다. 다음 질문으로 넘어갑니다.)";
+      setInterviewFlow(prev => [...prev, { sender: 'ai', text: errorMsg }]);
+      // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+      // speak(errorMsg);
       loadNextQuestion();
     }
   };
   
-  // --- ⭐️ 14. 면접 제어 핸들러 (신규) ---
+  // --- 15. 면접 제어 핸들러 (⭐️ 1, 3번 오류 수정) ---
   const handlePauseToggle = () => {
     // ⭐️ isPaused 상태를 직접 토글
     setIsPaused(prevPaused => {
       const newPausedState = !prevPaused;
       if (newPausedState) {
         // 일시정지
-        vadRef.current?.pause();
+        console.log("Pausing interview...");
+        // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+        // window.speechSynthesis.cancel(); 
+        vadRef.current?.pause(); // ⭐️ VAD 중지
         if (animationFrameId.current) {
           cancelAnimationFrame(animationFrameId.current);
           animationFrameId.current = null;
         }
       } else {
         // 다시시작
-        vadRef.current?.start();
+        console.log("Resuming interview...");
+        vadRef.current?.start(); // ⭐️ VAD 즉시 다시 시작
         if (!animationFrameId.current) {
-          predictWebcam();
+          predictWebcam(); // ⭐️ 표정 분석 다시 시작
         }
       }
       return newPausedState;
@@ -602,24 +722,25 @@ function CameraPageContent() {
 
   const handleEndInterview = () => {
     if (window.confirm("면접을 정말로 종료하시겠습니까? 종료 후에는 최종 피드백 페이지로 이동합니다.")) {
-      // VAD 및 MediaPipe 정지
       vadRef.current?.pause();
+      // ⭐️ [제거됨] 1번 요청: AI 음성(TTS) 제거
+      // window.speechSynthesis.cancel(); 
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
         animationFrameId.current = null;
       }
-      // 카메라/마이크 스트림 정지
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
         stream.getTracks().forEach((track) => track.stop());
       }
       
-      // ⭐️ 최종 페이지 이동 로직 호출
+      // ⭐️ 3, 4번 요청: 타이머 중지 및 리포트 페이지 이동
+      setIsPaused(true); // ⭐️ 타이머 중지를 위해 isPaused를 true로 설정
       goToReportPage();
     }
   };
 
-  // --- 15. UI 렌더링 ---
+  // --- 16. UI 렌더링 (⭐️ 3번 요청: 타이머 UI 추가) ---
   if (error) { 
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
@@ -642,7 +763,7 @@ function CameraPageContent() {
 
   return (
     <main className="flex flex-col h-screen bg-slate-900 text-white p-8 overflow-hidden">
-      {/* 상단: 비디오 + 실시간 점수 */}
+      {/* ⭐️ 상단: 비디오 + 실시간 점수 + 타이머 */}
       <div className="w-full flex flex-col md:flex-row gap-6 mb-6">
         {/* 비디오 */}
         <div className="flex-1">
@@ -652,12 +773,19 @@ function CameraPageContent() {
             muted 
             playsInline
             className="w-full h-auto aspect-video bg-black rounded-lg shadow-lg border border-slate-700"
-            style={{ transform: 'scaleX(-1)' }} // ⭐️ 거울 모드
+            style={{ transform: 'scaleX(-1)' }} // ⭐️ 2번 오류 수정: 비디오 안정성을 위해 transform 유지
           />
         </div>
-        {/* 실시간 점수 바 */}
-        <div className="flex-1 p-6 bg-slate-800 rounded-lg border border-slate-700">
-          <h3 className="text-xl font-semibold mb-4 text-teal-300">실시간 피드백</h3>
+        {/* 실시간 점수 바 + 타이머 */}
+        <div className="flex-1 p-6 bg-slate-800 rounded-lg border border-slate-700 flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+             <h3 className="text-xl font-semibold text-teal-300">실시간 피드백</h3>
+             {/* ⭐️ 3번 요청: 타이머 UI */}
+             <div className="text-2xl font-mono text-yellow-300 bg-slate-900 px-3 py-1 rounded">
+               {formatTime(elapsedTime)}
+             </div>
+          </div>
+
           {isAiLoading ? (
             <p className="text-slate-400">AI 표정 분석 모델 로드 중...</p>
           ) : (
@@ -696,11 +824,11 @@ function CameraPageContent() {
           ))}
         </div>
 
-        {/* ⭐️ 면접 제어 버튼 추가 (신규) */}
+        {/* ⭐️ 3번 요청: 면접 제어 버튼 */}
         <div className="p-4 flex justify-center gap-4 border-t border-slate-700 bg-slate-800">
           <button
             onClick={handlePauseToggle}
-            disabled={isProcessing} // 피드백 처리 중에는 비활성화
+            disabled={isProcessing} 
             className={`px-6 py-2 rounded-lg font-semibold transition-colors disabled:opacity-50
               ${isPaused 
                 ? 'bg-green-600 hover:bg-green-700' // 다시 시작
@@ -737,12 +865,12 @@ function CameraPageContent() {
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 placeholder={isPaused ? "면접이 일시정지되었습니다." : (isAiLoading ? "AI 모델 로드 중..." : "음성으로 답변하시거나 여기에 텍스트로 입력 후 전송하세요...")}
-                disabled={isProcessing || isAiLoading || isPaused} // ⭐️ isPaused 추가
+                disabled={isProcessing || isAiLoading || isPaused} 
                 className="flex-1 p-3 bg-slate-700 rounded-lg text-white border border-slate-600 focus:ring-2 focus:ring-teal-500 outline-none"
               />
               <button
                 type="submit"
-                disabled={isProcessing || isRecording || !textInput.trim() || isPaused} // ⭐️ isPaused 추가
+                disabled={isProcessing || isRecording || !textInput.trim() || isPaused} 
                 className="p-3 bg-teal-600 hover:bg-teal-700 rounded-lg text-white transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
               >
                 전송

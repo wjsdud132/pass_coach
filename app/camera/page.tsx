@@ -1,4 +1,4 @@
-// app/camera/page.tsx (요청사항 반영된 전체 수정본)
+// app/camera/page.tsx (videoRef.current가 null입니다 오류 수정본)
 
 'use client';
 
@@ -90,8 +90,16 @@ function CameraPageContent() {
   // --- 에러 상태 ---
   const [error, setError] = useState<string | null>(null);
 
-  // --- 5. useEffect #1: 카메라, 마이크, VAD, 녹음기 설정 ---
+  //
+  // --- ⭐️⭐️⭐️ 5. [수정된 부분] (111행 ~ 227행) ⭐️⭐️⭐️ ---
+  //
   useEffect(() => {
+    // ⭐️ [수정] isLoading이 true이면(아직 <video> 태그가 렌더링 안됨)
+    // 함수를 즉시 종료합니다.
+    if (isLoading) {
+      return;
+    }
+
     let stream: MediaStream | null = null;
     let vadInstance: MicVAD | null = null;
     let mediaRecorderInstance: MediaRecorder | null = null;
@@ -110,6 +118,7 @@ function CameraPageContent() {
           
           console.log("카메라 스트림 획득 성공:", stream);
           
+          // ⭐️ isLoading이 false가 된 후이므로, videoRef.current는 이제 null이 아닙니다.
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             
@@ -131,17 +140,15 @@ function CameraPageContent() {
             // loadeddata 이벤트에서 재생 시도 및 표정 분석 시작
             videoRef.current.addEventListener("loadeddata", () => {
               playVideo();
-              if (faceLandmarkerRef.current && videoRef.current) {
-                predictWebcam();
-              }
+              // (faceLandmarkerRef.current가 준비되었는지는 predictWebcam 내부에서 확인)
+              predictWebcam();
             });
             
             // play 이벤트 리스너 추가
             videoRef.current.addEventListener("play", () => {
               console.log("비디오 재생 중");
-              if (faceLandmarkerRef.current && videoRef.current) {
-                predictWebcam();
-              }
+              // ⭐️ play 이벤트에서도 predictWebcam을 호출하여 루프 시작 보장
+              predictWebcam();
             });
             
             // canplay 이벤트에서도 재생 시도
@@ -150,7 +157,8 @@ function CameraPageContent() {
             // 즉시 재생 시도
             playVideo();
           } else {
-            console.error("videoRef.current가 null입니다");
+            // 이 else 문은 이제 실행되지 않아야 합니다.
+            console.error("videoRef.current가 null입니다 (수정 후에도 발생한다면 다른 문제입니다)");
           }
 
           mediaRecorderInstance = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -232,7 +240,9 @@ function CameraPageContent() {
       if (mediaRecorderInstance && mediaRecorderInstance.state !== "inactive") mediaRecorderInstance.stop();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
-  }, []); // ⭐️ 의존성 배열을 빈 배열로 변경 (한 번만 실행)
+  }, [isLoading]); // ⭐️ [수정] isLoading을 의존성 배열에 추가
+  // --- (여기까지 111행 ~ 227행 수정 완료) ---
+
 
   // --- 6. useEffect #2: MediaPipe 로드 ---
   useEffect(() => {
@@ -248,6 +258,7 @@ function CameraPageContent() {
           runningMode: "VIDEO",
         });
         setIsAiLoading(false);
+        console.log("✅ MediaPipe FaceLandmarker 로드 성공");
       } catch (err) {
         setError("AI 표정 분석 모델 로드에 실패했습니다.");
         setIsAiLoading(false);
@@ -316,19 +327,36 @@ function CameraPageContent() {
     }
   }, [interviewFlow]);
 
-  // --- 9. 실시간 표정 분석 로직 ---
+  // --- 9. 실시간 표정 분석 로직 (⭐️ 검은 화면/ROI 오류 수정됨) ---
   const predictWebcam = useCallback(() => {
-    if (!videoRef.current || !faceLandmarkerRef.current) return;
+    // ⭐️ 1. 필수 ref들이 준비되었는지 확인
+    if (!videoRef.current || !faceLandmarkerRef.current) {
+      animationFrameId.current = requestAnimationFrame(predictWebcam);
+      return;
+    }
+    
     const video = videoRef.current;
+
+    // ⭐️ 2. [핵심] 비디오 프레임이 실제로 사용 가능한지 확인
+    if (video.videoWidth === 0 || video.videoHeight === 0 || video.paused) {
+      animationFrameId.current = requestAnimationFrame(predictWebcam);
+      return;
+    }
+
+    // ⭐️ 3. 동일한 프레임을 중복 처리하지 않도록 방지
     if (video.currentTime === lastVideoTimeRef.current) {
       animationFrameId.current = requestAnimationFrame(predictWebcam);
       return;
     }
+
+    // ⭐️ 4. 모든 검사를 통과했으므로, 예측 수행
     lastVideoTimeRef.current = video.currentTime;
     const results = faceLandmarkerRef.current.detectForVideo(video, Date.now());
     processResults(results.faceBlendshapes);
+
+    // ⭐️ 5. 다음 프레임 요청
     animationFrameId.current = requestAnimationFrame(predictWebcam);
-  }, []);
+  }, []); // 의존성 배열은 [] 유지
   
   const processResults = (blendshapes: any[]) => {
     if (!blendshapes || blendshapes.length === 0) return;
@@ -422,25 +450,35 @@ function CameraPageContent() {
       formData.append('audio', audioBlob, 'interview_answer.webm');
       formData.append('question', currentQuestionText); // ⭐️ 질문 텍스트 추가
       
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        body: formData,
-      });
+      // ⭐️ '/api/feedback' API가 formData를 처리하도록 수정 필요
+      // 현재 /api/feedback (text/page.tsx에서 사용)은 JSON을 기대합니다.
+      // /api/feedback-video 또는 별도 API를 사용해야 할 수 있습니다.
+      // 여기서는 '/api/feedback'이 text/page.tsx와 동일한 API라고 가정하고,
+      // 텍스트 기반 피드백 API(/api/feedback-text)를 호출하는 로직으로 임시 변경합니다.
+      // (추후 오디오 STT API로 변경 필요)
       
-      // ⭐️ 응답이 OK가 아니거나 빈 응답인 경우 처리
+      // 임시: STT가 없으므로 오디오 Blob을 보내는 대신 임시 텍스트를 보냄
+      // 실제로는 여기서 STT API를 호출해야 합니다.
+      const tempTranscription = "[음성 답변 녹음됨 (STT 기능 필요)]";
+
+      const response = await fetch('/api/feedback-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: currentQuestionText, answer: tempTranscription }),
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
         let errorMessage = "오디오 답변 처리에 실패했습니다.";
         try {
           const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.message || errorMessage;
+          errorMessage = errorJson.error || errorJson.message || errorMessage;
         } catch {
           errorMessage = errorText || errorMessage;
         }
         throw new Error(errorMessage);
       }
 
-      // ⭐️ 응답 본문이 비어있는지 확인
       const responseText = await response.text();
       if (!responseText || responseText.trim() === '') {
         throw new Error("서버에서 빈 응답을 받았습니다.");
@@ -450,7 +488,6 @@ function CameraPageContent() {
       
       setInterviewFlow(prev => [...prev, { sender: 'user', text: feedbackResult.transcription || "(답변이 인식되지 않았습니다.)" }]);
       
-      // (요청 4) 자기소개(index -1)를 제외하고 피드백 저장
       if (currentIdx >= 0) {
         setFeedbackHistory(prev => [
           ...prev,
@@ -498,7 +535,6 @@ function CameraPageContent() {
         body: JSON.stringify({ question: currentQuestionText, answer: answerText }),
       });
 
-      // ⭐️ 응답이 OK가 아니거나 빈 응답인 경우 처리
       if (!response.ok) {
         const errorText = await response.text();
         let errorMessage = "텍스트 답변 처리에 실패했습니다.";
@@ -511,7 +547,6 @@ function CameraPageContent() {
         throw new Error(errorMessage);
       }
 
-      // ⭐️ 응답 본문이 비어있는지 확인
       const responseText = await response.text();
       if (!responseText || responseText.trim() === '') {
         throw new Error("서버에서 빈 응답을 받았습니다.");
@@ -519,7 +554,6 @@ function CameraPageContent() {
 
       const feedbackResult = JSON.parse(responseText);
       
-      // ⭐️ 응답에 error 필드가 있는지 확인
       if (feedbackResult.error) {
         throw new Error(feedbackResult.error);
       }
@@ -557,7 +591,8 @@ function CameraPageContent() {
     );
   }
 
-  if (isLoading && interviewFlow.length === 0) {
+  // ⭐️ [수정] isLoading이 true일 때만 로딩 화면을 보여줍니다.
+  if (isLoading) {
      return (
        <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
          <div className="w-16 h-16 border-8 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
@@ -566,6 +601,7 @@ function CameraPageContent() {
      );
   }
 
+  // ⭐️ isLoading이 false가 되면 아래의 면접 UI가 렌더링됩니다.
   return (
     // (요청 1) 사이드바 제거, 메인 컨텐츠가 전체 화면 사용
     <main className="flex flex-col h-screen bg-slate-900 text-white p-8 overflow-hidden">

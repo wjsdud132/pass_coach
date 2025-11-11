@@ -19,11 +19,25 @@ export default function MethodSelectionPage() {
   }, [router]);
 
   const handleTextMethodClick = () => {
-    router.push('/text');
+    if (typeof window !== 'undefined') {
+      const jobCategory = sessionStorage.getItem('jobCategory') || '';
+      const jobUrl = sessionStorage.getItem('jobUrl') || '';
+      const params = new URLSearchParams();
+      if (jobCategory) params.set('job_category', jobCategory);
+      if (jobUrl) params.set('job_url', jobUrl);
+      router.push(`/text?${params.toString()}`);
+    }
   };
 
   const handleCameraMethodClick = () => {
-    router.push('/camera');
+    if (typeof window !== 'undefined') {
+      const jobCategory = sessionStorage.getItem('jobCategory') || '';
+      const jobUrl = sessionStorage.getItem('jobUrl') || '';
+      const params = new URLSearchParams();
+      if (jobCategory) params.set('job_category', jobCategory);
+      if (jobUrl) params.set('job_url', jobUrl);
+      router.push(`/camera?${params.toString()}`);
+    }
   };
 
   return (

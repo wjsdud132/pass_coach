@@ -81,7 +81,7 @@ export default function Home() {
                   type="text"
                   value={jobUrl}
                   onChange={(e) => setJobUrl(e.target.value)}
-                  placeholder="채용 공고 링크를 붙여넣으면 더 정밀한 질문을 받을 수 있습니다다."
+                  placeholder="채용 공고 링크를 붙여넣으면 더 정밀한 질문을 받을 수 있습니다."
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-lg text-slate-700 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100 outline-none transition-all"
                 />
               </div>

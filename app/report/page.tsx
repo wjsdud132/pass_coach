@@ -150,14 +150,14 @@ export default function ReportPage() {
 
         {/* 종합 피드백 */}
         <div className="bg-white/90 border border-sky-100 rounded-3xl shadow-2xl shadow-sky-100 p-8 mb-8 backdrop-blur">
-          <h2 className="text-2xl font-bold text-slate-900 mb-4">📝 AI 종합 피드백</h2>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4"> AI 종합 피드백</h2>
           {isSummaryLoading ? (
              <div className="flex items-center justify-center gap-3 text-sky-500">
               <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
               <span className="font-medium">종합 피드백을 생성하는 중입니다...</span>
             </div>
           ) : (
-            // ⭐️ [수정] ReactMarkdown을 <div>로 감싸고, className을 <div>로 이동
+            
             <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 text-slate-700 leading-relaxed prose max-w-none">
               <ReactMarkdown>
                 {finalSummary}
@@ -181,7 +181,7 @@ export default function ReportPage() {
                   <h4 className="font-bold text-slate-700 mb-2">제출한 답변:</h4>
                   <p className="bg-slate-50 border border-slate-200 p-4 rounded-2xl mb-4 text-slate-700 italic">"{item.transcription}"</p>
                   
-                  <h4 className="font-bold text-sky-600 mb-2">💡 AI 상세 피드백:</h4>
+                  <h4 className="font-bold text-sky-600 mb-2"> AI 상세 피드백:</h4>
                   {/* ⭐️ [수정] 여기도 동일하게 <div>로 감싸고 className 이동 */}
                   <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl text-slate-700 whitespace-pre-line leading-relaxed prose max-w-none">
                     <ReactMarkdown>

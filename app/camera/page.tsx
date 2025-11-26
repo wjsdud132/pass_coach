@@ -760,15 +760,25 @@ function CameraPageContent() {
 
   if (isLoading) {
      return (
-       <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-8">
-         <div className="w-16 h-16 border-8 border-teal-500 border-t-transparent rounded-full animate-spin"></div>
-         <p className="mt-4 text-xl">질문을 생성하는 중입니다...</p>
+       <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50 text-slate-800 p-8">
+         <div className="text-center bg-white/80 border border-sky-100 rounded-3xl px-10 py-12 shadow-xl">
+           <div className="w-16 h-16 border-8 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+           <p className="mt-6 text-2xl font-semibold text-slate-900">맞춤 질문을 준비 중입니다...</p>
+           <p className="mt-2 text-slate-500">채용 공고에서 핵심 역량을 추출하고 있어요.</p>
+         </div>
        </main>
      );
   }
 
   return (
-    <main className="flex flex-col h-screen bg-slate-900 text-white p-8 overflow-hidden">
+    <main className="flex flex-col h-screen bg-gradient-to-br from-sky-50 via-white to-emerald-50 text-slate-900 p-8 overflow-hidden">
+      {/* 헤더 */}
+      <header className="text-center mb-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-sky-400">Camera Studio</p>
+        <h2 className="mt-3 text-4xl font-bold text-slate-900">AI 모의 면접 (카메라)</h2>
+        <p className="mt-4 text-lg text-slate-500">실시간 표정 분석과 음성 인식으로 면접을 진행합니다.</p>
+      </header>
+
       {/* ⭐️ 상단: 비디오 + 실시간 점수 + 타이머 */}
       <div className="w-full flex flex-col md:flex-row gap-6 mb-6">
         {/* 비디오 */}
@@ -778,72 +788,53 @@ function CameraPageContent() {
             autoPlay 
             muted 
             playsInline
-            className="w-full h-auto aspect-video bg-black rounded-lg shadow-lg border border-slate-700"
+            className="w-full h-auto aspect-video bg-black rounded-3xl shadow-2xl shadow-sky-100 border border-sky-100"
             style={{ transform: 'scaleX(-1)' }} // ⭐️ 2번 오류 수정: 비디오 안정성을 위해 transform 유지
           />
         </div>
         {/* 실시간 점수 바 + 타이머 */}
-        <div className="flex-1 p-6 bg-slate-800 rounded-lg border border-slate-700 flex flex-col">
+        <div className="flex-1 p-6 bg-white/90 border border-sky-100 rounded-3xl shadow-2xl shadow-sky-100 backdrop-blur flex flex-col">
           <div className="flex justify-between items-center mb-4">
-             <h3 className="text-xl font-semibold text-teal-300">실시간 피드백</h3>
+             <h3 className="text-xl font-semibold text-slate-900">실시간 피드백</h3>
              {/* ⭐️ 3번 요청: 타이머 UI */}
-             <div className="text-2xl font-mono text-yellow-300 bg-slate-900 px-3 py-1 rounded">
+             <div className="text-2xl font-mono text-sky-600 bg-sky-50 border border-sky-200 px-3 py-1 rounded-2xl">
                {formatTime(elapsedTime)}
              </div>
           </div>
 
           {isAiLoading ? (
-            <p className="text-slate-400">AI 표정 분석 모델 로드 중...</p>
+            <p className="text-slate-500">AI 표정 분석 모델 로드 중...</p>
           ) : (
             <div className="space-y-4">
               <div className="flex justify-between items-center gap-4">
-                <span className="w-24">표정/미소</span>
-                <div className="w-full bg-slate-700 rounded-full h-3"><div className="bg-blue-500 h-3 rounded-full transition-all" style={{ width: `${expressionScore}%` }}></div></div>
-                <span className="w-10 text-right">{expressionScore}점</span>
+                <span className="w-24 text-slate-700 font-medium">표정/미소</span>
+                <div className="w-full bg-slate-100 rounded-full h-3"><div className="bg-gradient-to-r from-blue-400 to-blue-500 h-3 rounded-full transition-all" style={{ width: `${expressionScore}%` }}></div></div>
+                <span className="w-10 text-right text-slate-900 font-semibold">{expressionScore}점</span>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                {!isRecording ? (
-                  <button
-                    onClick={startRecording}
-                    className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-2xl shadow-lg shadow-rose-100 transition-all"
-                  >
-                    녹화 시작
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopRecording}
-                    className="flex-1 bg-rose-500 hover:bg-rose-600 text-white font-semibold py-3 rounded-2xl shadow-lg shadow-rose-100 transition-all animate-pulse"
-                  >
-                    녹화 중지
-                  </button>
-                )}
-                <button
-                  onClick={() => videoRef.current?.requestFullscreen()}
-                  className="px-4 py-3 rounded-2xl border border-slate-200 text-slate-600 font-semibold hover:border-slate-300 transition-colors"
-                >
-                  전체 화면
-                </button>
+              <div className="flex justify-between items-center gap-4">
+                <span className="w-24 text-slate-700 font-medium">시선/응시</span>
+                <div className="w-full bg-slate-100 rounded-full h-3"><div className="bg-gradient-to-r from-emerald-400 to-emerald-500 h-3 rounded-full transition-all" style={{ width: `${gazeScore}%` }}></div></div>
+                <span className="w-10 text-right text-slate-900 font-semibold">{gazeScore}점</span>
               </div>
 
-              {recordedVideos[currentQuestionIndex] && (
-                <div className="mt-6">
-                  <p className="text-sm font-semibold text-slate-500 mb-2">내 답변 다시 보기</p>
-                  <div className="rounded-2xl overflow-hidden border border-slate-100 shadow">
-                    <video src={recordedVideos[currentQuestionIndex]} controls className="w-full" />
-                  </div>
-                </div>
-              )}
+              <div className="flex justify-between items-center gap-4">
+                <span className="w-24 text-slate-700 font-medium">음성/톤</span>
+                <div className="w-full bg-slate-100 rounded-full h-3"><div className="bg-gradient-to-r from-purple-400 to-purple-500 h-3 rounded-full transition-all" style={{ width: `${toneScore}%` }}></div></div>
+                <span className="w-10 text-right text-slate-900 font-semibold">{toneScore}점</span>
+              </div>
             </div>
-
+          )}
+        </div>
+      </div>
       {/* 하단: AI 채팅창 */}
-      <div className="flex-1 flex flex-col bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+      <div className="flex-1 flex flex-col bg-white/90 border border-sky-100 rounded-3xl shadow-2xl shadow-sky-100 backdrop-blur overflow-hidden">
         {/* 채팅 메시지 영역 */}
         <div ref={chatContainerRef} className="flex-1 p-6 space-y-4 overflow-y-auto">
           {interviewFlow.map((msg, index) => (
             <div key={index} className={`flex ${msg.sender === 'ai' ? 'justify-start' : 'justify-end'}`}>
               {msg.sender === 'ai' && <Image src="/logo.jpg" alt="AI" width={32} height={32} className="w-8 h-8 rounded-full mr-3" />}
-              <div className={`p-4 rounded-lg max-w-lg ${msg.sender === 'ai' ? 'bg-slate-700' : 'bg-teal-700'}`}>
+              <div className={`p-4 rounded-2xl max-w-lg ${msg.sender === 'ai' ? 'bg-sky-50 border border-sky-100 text-slate-800' : 'bg-gradient-to-r from-sky-500 to-emerald-400 text-white'}`}>
                 {msg.text}
               </div>
             </div>
@@ -851,37 +842,37 @@ function CameraPageContent() {
         </div>
 
         {/* ⭐️ 3번 요청: 면접 제어 버튼 */}
-        <div className="p-4 flex justify-center gap-4 border-t border-slate-700 bg-slate-800">
+        <div className="p-4 flex justify-center gap-4 border-t border-sky-100 bg-white/50">
           <button
             onClick={handlePauseToggle}
             disabled={isProcessing} 
-            className={`px-6 py-2 rounded-lg font-semibold transition-colors disabled:opacity-50
+            className={`px-6 py-3 rounded-2xl font-semibold transition-all disabled:opacity-50 hover:-translate-y-0.5
               ${isPaused 
-                ? 'bg-green-600 hover:bg-green-700' // 다시 시작
-                : 'bg-yellow-600 hover:bg-yellow-700' // 일시 정지
+                ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-100' // 다시 시작
+                : 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-white shadow-lg shadow-yellow-100' // 일시 정지
               }`}
           >
             {isPaused ? '면접 이어하기' : '일시정지'}
           </button>
           <button
             onClick={handleEndInterview}
-            className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-semibold transition-all hover:-translate-y-0.5 shadow-lg shadow-rose-100"
           >
             면접 종료하기
           </button>
         </div>
 
         {/* 하단 상태 표시줄 */}
-        <div className="p-4 border-t border-slate-700 bg-slate-900">
+        <div className="p-4 border-t border-sky-100 bg-white/50">
           {isRecording ? (
-            <div className="flex items-center justify-center gap-3 text-red-400">
-              <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></span>
-              답변 녹음 중... (말을 멈추면 2초 후 자동 제출됩니다)
+            <div className="flex items-center justify-center gap-3 text-rose-500">
+              <span className="w-3 h-3 bg-rose-500 rounded-full animate-pulse"></span>
+              <span className="font-medium">답변 녹음 중... (말을 멈추면 2초 후 자동 제출됩니다)</span>
             </div>
           ) : isProcessing ? (
-            <div className="flex items-center justify-center gap-3 text-yellow-400">
-              <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
-              답변 처리 중... 다음 질문을 준비합니다.
+            <div className="flex items-center justify-center gap-3 text-sky-500">
+              <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className="font-medium">답변 처리 중... 다음 질문을 준비합니다.</span>
             </div>
           ) : (
             // 텍스트 입력 폼
@@ -892,12 +883,12 @@ function CameraPageContent() {
                 onChange={(e) => setTextInput(e.target.value)}
                 placeholder={isPaused ? "면접이 일시정지되었습니다." : (isAiLoading ? "AI 모델 로드 중..." : "음성으로 답변하시거나 여기에 텍스트로 입력 후 전송하세요...")}
                 disabled={isProcessing || isAiLoading || isPaused} 
-                className="flex-1 p-3 bg-slate-700 rounded-lg text-white border border-slate-600 focus:ring-2 focus:ring-teal-500 outline-none"
+                className="flex-1 p-3 bg-white border border-slate-200 rounded-2xl text-slate-800 focus:border-emerald-300 focus:ring-4 focus:ring-emerald-100 outline-none"
               />
               <button
                 type="submit"
                 disabled={isProcessing || isRecording || !textInput.trim() || isPaused} 
-                className="p-3 bg-teal-600 hover:bg-teal-700 rounded-lg text-white transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
+                className="p-3 bg-gradient-to-r from-sky-500 to-emerald-400 hover:from-sky-600 hover:to-emerald-500 rounded-2xl text-white font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-100 hover:-translate-y-0.5"
               >
                 전송
               </button>
@@ -909,3 +900,18 @@ function CameraPageContent() {
   );
 }
 
+// Next.js page 컴포넌트 (Suspense로 감싸서 useSearchParams 사용)
+export default function CameraPage() {
+  return (
+    <Suspense fallback={
+      <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-sky-50 via-white to-emerald-50 text-slate-800 p-8">
+        <div className="text-center bg-white/80 border border-sky-100 rounded-3xl px-10 py-12 shadow-xl">
+          <div className="w-16 h-16 border-8 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="mt-6 text-2xl font-semibold text-slate-900">로딩 중...</p>
+        </div>
+      </main>
+    }>
+      <CameraPageContent />
+    </Suspense>
+  );
+}
